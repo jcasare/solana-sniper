@@ -569,4 +569,49 @@ export class DashboardService {
         return new Date(token.createdAt).getTime();
     }
   }
+
+  async testBirdeyeApi(mintAddress: string) {
+    try {
+      this.logger.log(`Testing Birdeye API with token: ${mintAddress}`);
+      
+      // Use a popular Solana token if no address provided
+      const testAddress = mintAddress || 'So11111111111111111111111111111111111111112'; // Wrapped SOL
+      
+      // Make a simple API call to get token price
+      const response = await this.tokenMonitorService['dexApiService'].birdeyeApi.get(
+        `/defi/price?address=${testAddress}`,
+        {
+          headers: {
+            'X-API-KEY': process.env.BIRDEYE_API_KEY,
+          }
+        }
+      );
+
+      return {
+        success: true,
+        message: 'Birdeye API test successful',
+        token: testAddress,
+        data: response.data,
+        timestamp: new Date(),
+        rateLimit: {
+          limit: 60,
+          remaining: response.headers['x-ratelimit-remaining'] || 'N/A',
+          reset: response.headers['x-ratelimit-reset'] || 'N/A',
+        }
+      };
+    } catch (error) {
+      this.logger.error('Birdeye API test failed:', error.response?.data || error.message);
+      
+      return {
+        success: false,
+        message: 'Birdeye API test failed',
+        error: error.response?.data || error.message,
+        statusCode: error.response?.status,
+        timestamp: new Date(),
+        hint: error.response?.status === 401 ? 'Check your API key in .env file' : 
+              error.response?.status === 429 ? 'Rate limit exceeded (60 requests/min for free tier)' : 
+              'Check the token address or API configuration'
+      };
+    }
+  }
 }

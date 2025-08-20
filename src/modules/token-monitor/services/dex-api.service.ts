@@ -51,7 +51,7 @@ export interface DexScreenerToken {
 export class DexApiService {
   private readonly logger = new Logger(DexApiService.name);
   private readonly dexScreenerApi: AxiosInstance;
-  private readonly birdeyeApi: AxiosInstance;
+  public readonly birdeyeApi: AxiosInstance;
 
   constructor(private configService: ConfigService) {
     this.dexScreenerApi = axios.create({
@@ -169,11 +169,37 @@ export class DexApiService {
 
   async getTokenHolders(mintAddress: string, limit = 100) {
     try {
-      const response = await this.birdeyeApi.get(`/v1/wallet/token_list?address=${mintAddress}&limit=${limit}`);
-      return response.data.data?.items || [];
+      // First get token overview which includes holder count
+      const overviewResponse = await this.birdeyeApi.get(`/defi/token_overview?address=${mintAddress}`);
+      const holderCount = overviewResponse.data.data?.holder || 0;
+      
+      // Get top holders using the correct endpoint
+      const holdersResponse = await this.birdeyeApi.get(`/defi/token_top_traders?address=${mintAddress}&limit=${limit}`);
+      const topHolders = holdersResponse.data.data?.traders || [];
+      
+      return {
+        totalHolders: holderCount,
+        topHolders: topHolders.map((holder: any) => ({
+          address: holder.address,
+          balance: holder.balance || 0,
+          percentage: holder.holdPercentage || 0,
+          value: holder.valueUsd || 0,
+          isLP: holder.address?.toLowerCase().includes('pool') || false,
+          isBurn: holder.address?.startsWith('11111111') || false,
+        }))
+      };
     } catch (error) {
       this.logger.warn(`Could not get token holders from Birdeye for ${mintAddress}:`, error.message);
-      return [];
+      // Fallback to basic token info if holders endpoint fails
+      try {
+        const response = await this.birdeyeApi.get(`/defi/token_overview?address=${mintAddress}`);
+        return {
+          totalHolders: response.data.data?.holder || 0,
+          topHolders: []
+        };
+      } catch (fallbackError) {
+        return { totalHolders: 0, topHolders: [] };
+      }
     }
   }
 

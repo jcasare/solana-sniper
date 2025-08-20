@@ -77,7 +77,7 @@ export class TokenMonitorService {
       const [dexInfo, mintInfo, holders, securityInfo] = await Promise.all([
         this.dexApiService.getTokenInfoFromDexScreener(mintAddress),
         this.solanaRpcService.getTokenMintInfo(mintAddress),
-        this.solanaRpcService.getTokenHolders(mintAddress, 50),
+        this.dexApiService.getTokenHolders(mintAddress, 50), // Use Birdeye API for holder data
         this.dexApiService.getTokenSecurityInfo(mintAddress),
       ]);
 
@@ -123,18 +123,25 @@ export class TokenMonitorService {
     return tokens;
   }
 
-  private analyzeHolders(holders: any[], totalSupply: string) {
+  private analyzeHolders(holdersData: any, totalSupply: string) {
+    // Handle both old array format and new object format
+    const isNewFormat = holdersData && typeof holdersData === 'object' && 'totalHolders' in holdersData;
+    const holders = isNewFormat ? holdersData.topHolders : holdersData;
+    const totalHolders = isNewFormat ? holdersData.totalHolders : (Array.isArray(holdersData) ? holdersData.length : 0);
+    
     const totalSupplyNum = parseFloat(totalSupply);
-    const topHolders = holders.slice(0, 10).map(holder => {
-      const balance = parseFloat(holder.balance);
-      const percentage = balance / totalSupplyNum;
+    const holdersArray = Array.isArray(holders) ? holders : [];
+    const topHolders = holdersArray.slice(0, 10).map((holder: any) => {
+      const percentage = holder.percentage || (holder.balance ? parseFloat(holder.balance) / totalSupplyNum : 0);
       
       return {
         address: holder.address,
         percentage,
-        isLP: false,
-        isBurn: this.isBurnAddress(holder.address),
+        isLP: holder.isLP || false,
+        isBurn: holder.isBurn || this.isBurnAddress(holder.address),
         isDev: false,
+        balance: holder.balance,
+        valueUsd: holder.value,
       };
     });
 
@@ -146,12 +153,16 @@ export class TokenMonitorService {
       .filter(h => h.isBurn)
       .reduce((sum, holder) => sum + holder.percentage, 0);
 
+    const lpPercentage = topHolders
+      .filter(h => h.isLP)
+      .reduce((sum, holder) => sum + holder.percentage, 0);
+
     return {
-      totalHolders: holders.length,
+      totalHolders,
       topHoldersConcentration,
       devWalletPercentage: 0,
       burnedPercentage,
-      lpPercentage: 0,
+      lpPercentage,
       topHolders,
     };
   }

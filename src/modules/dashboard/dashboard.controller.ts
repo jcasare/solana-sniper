@@ -172,4 +172,9 @@ export class DashboardController {
       direct: true,
     };
   }
+
+  @Get('test/birdeye/:mintAddress')
+  async testBirdeyeApi(@Param('mintAddress') mintAddress: string) {
+    return this.dashboardService.testBirdeyeApi(mintAddress);
+  }
 }

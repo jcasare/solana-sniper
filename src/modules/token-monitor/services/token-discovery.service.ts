@@ -124,7 +124,7 @@ export class TokenDiscoveryService {
       const [mintInfo, metadata, holders] = await Promise.allSettled([
         this.solanaRpcService.getTokenMintInfo(mintAddress),
         this.solanaRpcService.getTokenMetadata(mintAddress),
-        this.solanaRpcService.getTokenHolders(mintAddress, 50),
+        this.dexApiService.getTokenHolders(mintAddress, 50), // Use Birdeye API for holder data
       ]);
 
       if (mintInfo.status === 'rejected') {
@@ -133,14 +133,14 @@ export class TokenDiscoveryService {
 
       const mintData = mintInfo.value;
       const metadataData = metadata.status === 'fulfilled' ? metadata.value : null;
-      const holdersData = holders.status === 'fulfilled' ? holders.value : [];
+      const holdersData = holders.status === 'fulfilled' ? holders.value : { totalHolders: 0, topHolders: [] };
 
       const securityInfo = await this.dexApiService.getTokenSecurityInfo(mintAddress);
       const tokenOverview = await this.dexApiService.getTokenOverview(mintAddress);
 
       const createdAt = new Date(tokenPair.pairCreatedAt || Date.now());
       const totalSupply = mintData.supply;
-      const holderCount = holdersData.length;
+      const holderCount = holdersData.totalHolders;
 
       const securityFlags = {
         isHoneypot: false,
@@ -198,18 +198,20 @@ export class TokenDiscoveryService {
     }
   }
 
-  private analyzeHolders(holders: any[], totalSupply: string) {
+  private analyzeHolders(holdersData: { totalHolders: number, topHolders: any[] }, totalSupply: string) {
     const totalSupplyNum = parseFloat(totalSupply);
-    const topHolders = holders.slice(0, 10).map(holder => {
-      const balance = parseFloat(holder.balance);
-      const percentage = balance / totalSupplyNum;
+    const topHolders = holdersData.topHolders.slice(0, 10).map(holder => {
+      // Use percentage directly from Birdeye if available
+      const percentage = holder.percentage || (holder.balance ? parseFloat(holder.balance) / totalSupplyNum : 0);
       
       return {
         address: holder.address,
         percentage,
-        isLP: this.isLPAddress(holder.address),
-        isBurn: this.isBurnAddress(holder.address),
+        isLP: holder.isLP || this.isLPAddress(holder.address),
+        isBurn: holder.isBurn || this.isBurnAddress(holder.address),
         isDev: false,
+        balance: holder.balance,
+        valueUsd: holder.value,
       };
     });
 
@@ -226,7 +228,7 @@ export class TokenDiscoveryService {
       .reduce((sum, holder) => sum + holder.percentage, 0);
 
     return {
-      totalHolders: holders.length,
+      totalHolders: holdersData.totalHolders, // Use actual holder count from Birdeye
       topHoldersConcentration,
       devWalletPercentage: 0,
       burnedPercentage,
